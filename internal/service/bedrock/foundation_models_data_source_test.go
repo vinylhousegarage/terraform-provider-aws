@@ -27,6 +27,7 @@ func TestAccBedrockFoundationModelsDataSource_basic(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttrSet(datasourceName, names.AttrID),
 					acctest.CheckResourceAttrGreaterThanValue(datasourceName, "model_summaries.#", 0),
+					resource.TestCheckResourceAttrSet(datasourceName, "model_summaries.0.model_lifecycle.status"),
 				),
 			},
 		},

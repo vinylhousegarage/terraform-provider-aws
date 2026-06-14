@@ -10,6 +10,8 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrock"
+	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -54,6 +56,17 @@ func (d *foundationModelDataSource) Schema(ctx context.Context, request datasour
 			"model_id": schema.StringAttribute{
 				Required: true,
 			},
+			"model_lifecycle": schema.ObjectAttribute{
+				CustomType: fwtypes.NewObjectTypeOf[foundationModelLifecycleModel](ctx),
+				AttributeTypes: map[string]attr.Type{
+					"end_of_life_time":            timetypes.RFC3339Type{},
+					"legacy_time":                 timetypes.RFC3339Type{},
+					"public_extended_access_time": timetypes.RFC3339Type{},
+					"start_of_life_time":          timetypes.RFC3339Type{},
+					"status":                      types.StringType,
+				},
+				Computed: true,
+			},
 			"model_name": schema.StringAttribute{
 				Computed: true,
 			},
@@ -93,9 +106,54 @@ func (d *foundationModelDataSource) Read(ctx context.Context, request datasource
 		return
 	}
 
+	originalLifecycle := output.ModelDetails.ModelLifecycle
+	output.ModelDetails.ModelLifecycle = nil
+
 	response.Diagnostics.Append(fwflex.Flatten(ctx, output.ModelDetails, &data)...)
 	if response.Diagnostics.HasError() {
 		return
+	}
+
+	customizations := make([]string, len(output.ModelDetails.CustomizationsSupported))
+	for i, v := range output.ModelDetails.CustomizationsSupported {
+		customizations[i] = string(v)
+	}
+	data.CustomizationsSupported = fwflex.FlattenFrameworkStringValueSetOfStringLegacy(ctx, customizations)
+
+	inferenceTypes := make([]string, len(output.ModelDetails.InferenceTypesSupported))
+	for i, v := range output.ModelDetails.InferenceTypesSupported {
+		inferenceTypes[i] = string(v)
+	}
+	data.InferenceTypesSupported = fwflex.FlattenFrameworkStringValueSetOfStringLegacy(ctx, inferenceTypes)
+
+	inputModalities := make([]string, len(output.ModelDetails.InputModalities))
+	for i, v := range output.ModelDetails.InputModalities {
+		inputModalities[i] = string(v)
+	}
+	data.InputModalities = fwflex.FlattenFrameworkStringValueSetOfStringLegacy(ctx, inputModalities)
+
+	outputModalities := make([]string, len(output.ModelDetails.OutputModalities))
+	for i, v := range output.ModelDetails.OutputModalities {
+		outputModalities[i] = string(v)
+	}
+	data.OutputModalities = fwflex.FlattenFrameworkStringValueSetOfStringLegacy(ctx, outputModalities)
+
+	if originalLifecycle != nil {
+		lifecycleModel := &foundationModelLifecycleModel{
+			EndOfLifeTime:            fwflex.TimeToFramework(ctx, originalLifecycle.EndOfLifeTime),
+			LegacyTime:               fwflex.TimeToFramework(ctx, originalLifecycle.LegacyTime),
+			PublicExtendedAccessTime: fwflex.TimeToFramework(ctx, originalLifecycle.PublicExtendedAccessTime),
+			StartOfLifeTime:          fwflex.TimeToFramework(ctx, originalLifecycle.StartOfLifeTime),
+			Status:                   types.StringValue(string(originalLifecycle.Status)),
+		}
+
+		val, diags := fwtypes.NewObjectValueOf[foundationModelLifecycleModel](ctx, lifecycleModel)
+		response.Diagnostics.Append(diags...)
+		if !diags.HasError() {
+			data.ModelLifecycle = val
+		}
+	} else {
+		data.ModelLifecycle = fwtypes.NewObjectValueOfNull[foundationModelLifecycleModel](ctx)
 	}
 
 	data.ID = data.ModelID
@@ -105,14 +163,23 @@ func (d *foundationModelDataSource) Read(ctx context.Context, request datasource
 
 type foundationModelDataSourceModel struct {
 	framework.WithRegionModel
-	CustomizationsSupported    fwtypes.SetOfString `tfsdk:"customizations_supported"`
-	ID                         types.String        `tfsdk:"id"`
-	InferenceTypesSupported    fwtypes.SetOfString `tfsdk:"inference_types_supported"`
-	InputModalities            fwtypes.SetOfString `tfsdk:"input_modalities"`
-	ModelARN                   fwtypes.ARN         `tfsdk:"model_arn"`
-	ModelID                    types.String        `tfsdk:"model_id"`
-	ModelName                  types.String        `tfsdk:"model_name"`
-	OutputModalities           fwtypes.SetOfString `tfsdk:"output_modalities"`
-	ProviderName               types.String        `tfsdk:"provider_name"`
-	ResponseStreamingSupported types.Bool          `tfsdk:"response_streaming_supported"`
+	CustomizationsSupported    fwtypes.SetOfString                                  `tfsdk:"customizations_supported"`
+	ID                         types.String                                         `tfsdk:"id"`
+	InferenceTypesSupported    fwtypes.SetOfString                                  `tfsdk:"inference_types_supported"`
+	InputModalities            fwtypes.SetOfString                                  `tfsdk:"input_modalities"`
+	ModelARN                   fwtypes.ARN                                          `tfsdk:"model_arn"`
+	ModelID                    types.String                                         `tfsdk:"model_id"`
+	ModelLifecycle             fwtypes.ObjectValueOf[foundationModelLifecycleModel] `tfsdk:"model_lifecycle"`
+	ModelName                  types.String                                         `tfsdk:"model_name"`
+	OutputModalities           fwtypes.SetOfString                                  `tfsdk:"output_modalities"`
+	ProviderName               types.String                                         `tfsdk:"provider_name"`
+	ResponseStreamingSupported types.Bool                                           `tfsdk:"response_streaming_supported"`
+}
+
+type foundationModelLifecycleModel struct {
+	EndOfLifeTime            timetypes.RFC3339 `tfsdk:"end_of_life_time"`
+	LegacyTime               timetypes.RFC3339 `tfsdk:"legacy_time"`
+	PublicExtendedAccessTime timetypes.RFC3339 `tfsdk:"public_extended_access_time"`
+	StartOfLifeTime          timetypes.RFC3339 `tfsdk:"start_of_life_time"`
+	Status                   types.String      `tfsdk:"status"`
 }
